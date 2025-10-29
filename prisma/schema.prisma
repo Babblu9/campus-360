@@ -1,0 +1,246 @@
+// Prisma schema for Campus360
+// Provider: PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String    @unique
+  passwordHash String?   @map("password_hash")
+  name         String
+  role         Role
+  avatarUrl    String?   @map("avatar_url")
+  department   Department? @relation(fields: [departmentId], references: [id])
+  departmentId String?   @db.Uuid
+  isActive     Boolean   @default(true) @map("is_active")
+  provider     String?   // 'local' | 'google'
+  providerId   String?   @map("provider_id")
+  metadata     Json?
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  // relations
+  courses     Class[]     @relation("FacultyClasses")
+  enrollments Enrollment[]
+  resumes     Resume[]
+  applications Application[]
+  attendanceRecords AttendanceRecord[]
+}
+
+enum Role {
+  ADMIN
+  FACULTY
+  STUDENT
+  PLACEMENT
+}
+
+model Department {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code      String?  @unique
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  users     User[]
+  courses   Course[]
+}
+
+model Course {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code         String
+  title        String
+  credits      Int?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  departmentId String?  @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  classes Class[]
+}
+
+model Class {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  course     Course   @relation(fields: [courseId], references: [id])
+  courseId   String   @db.Uuid
+  term       String
+  year       Int
+  faculty    User?    @relation("FacultyClasses", fields: [facultyId], references: [id])
+  facultyId  String?  @db.Uuid
+  location   String?
+  schedule   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  sections   Section[]
+  sessions   AttendanceSession[]
+}
+
+model Section {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  classRef  Class    @relation(fields: [classId], references: [id])
+  classId   String   @db.Uuid
+  name      String?
+  capacity  Int?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  enrollments Enrollment[]
+}
+
+model Enrollment {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  student    User     @relation(fields: [studentId], references: [id])
+  studentId  String   @db.Uuid
+  section    Section  @relation(fields: [sectionId], references: [id])
+  sectionId  String   @db.Uuid
+  enrolledAt DateTime @default(now()) @map("enrolled_at")
+  status     String?  @default("ENROLLED")
+
+  @@unique([studentId, sectionId], name: "ux_enrollment_student_section")
+}
+
+model AttendanceSession {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  classRef   Class?   @relation(fields: [classId], references: [id])
+  classId    String?  @db.Uuid
+  section    Section? @relation(fields: [sectionId], references: [id])
+  sectionId  String?  @db.Uuid
+  method     String?  // QR|MANUAL|AUTO
+  qrToken    String?  @map("qr_token")
+  startedAt  DateTime?
+  expiresAt  DateTime?
+  metadata   Json?
+  createdBy  User?    @relation(fields: [createdById], references: [id])
+  createdById String? @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  records AttendanceRecord[]
+}
+
+model AttendanceRecord {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  attendanceSession    AttendanceSession @relation(fields: [attendanceSessionId], references: [id])
+  attendanceSessionId  String   @db.Uuid
+  student              User     @relation(fields: [studentId], references: [id])
+  studentId            String   @db.Uuid
+  status               AttendanceStatus
+  method               String?
+  recordedAt           DateTime @default(now()) @map("recorded_at")
+  recordedBy           User?    @relation("RecordedBy", fields: [recordedById], references: [id])
+  recordedById         String?  @db.Uuid
+  deviceInfo           Json?    @map("device_info")
+
+  @@unique([attendanceSessionId, studentId])
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  EXCUSED
+}
+
+model Resume {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  student    User     @relation(fields: [studentId], references: [id])
+  studentId  String   @db.Uuid
+  filename   String
+  s3Key      String   @map("s3_key")
+  mimeType   String?  @map("mime_type")
+  sizeBytes  Int?     @map("size_bytes")
+  status     ResumeStatus @default(PENDING)
+  uploadedAt DateTime @default(now()) @map("uploaded_at")
+  parsedAt   DateTime? @map("parsed_at")
+  metadata   Json?
+
+  parses ResumeParse[]
+}
+
+enum ResumeStatus {
+  PENDING
+  PARSED
+  FAILED
+}
+
+model ResumeParse {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  resume      Resume   @relation(fields: [resumeId], references: [id])
+  resumeId    String   @db.Uuid
+  parseResult Json?
+  rawText     String?
+  createdAt   DateTime @default(now()) @map("created_at")
+}
+
+model Recruiter {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  contactEmail String? @map("contact_email")
+  website   String?
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  jobs Job[]
+}
+
+model Job {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  recruiter   Recruiter @relation(fields: [recruiterId], references: [id])
+  recruiterId String   @db.Uuid
+  title       String
+  description String?
+  minCgpa     Float?   @map("min_cgpa")
+  eligibleBatches Int[]? @map("eligible_batches")
+  positions   Int?
+  lastDate    DateTime? @map("last_date")
+  location    String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  applications Application[]
+}
+
+model Application {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  job        Job      @relation(fields: [jobId], references: [id])
+  jobId      String   @db.Uuid
+  student    User     @relation(fields: [studentId], references: [id])
+  studentId  String   @db.Uuid
+  resume     Resume?  @relation(fields: [resumeId], references: [id])
+  resumeId   String?  @db.Uuid
+  status     ApplicationStatus @default(APPLIED)
+  appliedAt  DateTime @default(now()) @map("applied_at")
+  metadata   Json?
+
+  @@index([jobId])
+  @@index([studentId])
+}
+
+enum ApplicationStatus {
+  APPLIED
+  SHORTLISTED
+  INTERVIEW
+  OFFERED
+  REJECTED
+}
+
+model AuditLog {
+  id          BigInt   @id @default(autoincrement())
+  userId      String?  @db.Uuid
+  action      String
+  resourceType String? @map("resource_type")
+  resourceId  String?  @db.Uuid
+  ipAddress   String?  @map("ip_address")
+  userAgent   String?  @map("user_agent")
+  payload     Json?
+  level       String?  @default("INFO")
+  createdAt   DateTime @default(now()) @map("created_at")
+}
+
+model Event {
+  id        BigInt   @id @default(autoincrement())
+  name      String
+  payload   Json?
+  createdAt DateTime @default(now()) @map("created_at")
+}
